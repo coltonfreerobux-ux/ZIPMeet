@@ -1,16 +1,22 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <title>ZIPMEET</title>
 
 <style>
 
-body{
+*{
 margin:0;
-font-family:Arial,sans-serif;
-background:#111;
+padding:0;
+box-sizing:border-box;
+font-family:Segoe UI,Tahoma,sans-serif;
+}
+
+body{
+background:#121212;
 color:white;
 height:100vh;
 overflow:hidden;
@@ -18,43 +24,18 @@ overflow:hidden;
 
 .header{
 height:70px;
-background:#1b1b1b;
+background:#1d1d1d;
 display:flex;
 align-items:center;
 padding:0 20px;
 gap:10px;
+border-bottom:1px solid #333;
 }
 
 .logo{
 font-size:28px;
 font-weight:bold;
-color:#3399ff;
-}
-
-button{
-padding:10px 15px;
-border:none;
-border-radius:8px;
-cursor:pointer;
-font-weight:bold;
-}
-
-.create{
-background:#0084ff;
-color:white;
-}
-
-.join{
-background:#00a651;
-color:white;
-}
-
-input{
-padding:10px;
-border:none;
-border-radius:8px;
-background:#222;
-color:white;
+color:#4da3ff;
 }
 
 .main{
@@ -69,18 +50,80 @@ overflow:auto;
 }
 
 .right{
-width:350px;
+width:340px;
 background:black;
 display:flex;
 flex-direction:column;
+border-left:2px solid #222;
+}
+
+.panel{
+background:#1e1e1e;
+padding:20px;
+border-radius:12px;
+margin-bottom:15px;
+}
+
+input{
+width:100%;
+padding:10px;
+margin-top:10px;
+border:none;
+border-radius:8px;
+background:#2a2a2a;
+color:white;
+}
+
+button{
+padding:10px 15px;
+border:none;
+border-radius:8px;
+cursor:pointer;
+font-weight:bold;
+margin-top:10px;
+}
+
+.create{
+background:#0078ff;
+color:white;
+}
+
+.join{
+background:#00aa55;
+color:white;
+}
+
+.mute{
+background:red;
+color:white;
+}
+
+#roomCode{
+font-size:28px;
+color:#4da3ff;
+margin-top:10px;
+}
+
+#participants{
+margin-top:10px;
+}
+
+.participant{
+padding:8px;
+background:#292929;
+margin-bottom:5px;
+border-radius:6px;
+}
+
+#audios audio{
+display:block;
+margin-top:10px;
 }
 
 .right h2{
-margin:0;
 padding:15px;
-background:#000;
 text-align:center;
-border-bottom:1px solid #333;
+background:#000;
 }
 
 #transcripts{
@@ -89,30 +132,11 @@ overflow:auto;
 padding:10px;
 }
 
-.msg{
+.transcript{
+background:#161616;
 padding:10px;
-margin-bottom:10px;
-background:#151515;
+margin-bottom:8px;
 border-radius:6px;
-}
-
-.card{
-background:#1e1e1e;
-padding:20px;
-border-radius:12px;
-margin-bottom:15px;
-}
-
-#roomCode{
-font-size:28px;
-color:#48a7ff;
-margin-top:10px;
-font-weight:bold;
-}
-
-#audios audio{
-display:block;
-margin-top:10px;
 }
 
 </style>
@@ -125,46 +149,83 @@ margin-top:10px;
 ZIPMEET
 </div>
 
-<button class="create" onclick="createMeeting()">
-Create Meeting
-</button>
-
-<input id="joinInput" placeholder="Meeting Code">
-
-<button class="join" onclick="joinMeeting()">
-Join
-</button>
-
 </div>
 
 <div class="main">
 
 <div class="left">
 
-<div class="card">
-<h2>Meeting</h2>
+<div class="panel">
 
-<div id="status">
-Not connected
+<h2>User Information</h2>
+
+<input
+id="username"
+placeholder="Your Name"
+/>
+
 </div>
+
+<div class="panel">
+
+<h2>Create Meeting</h2>
+
+<button
+class="create"
+onclick="createRoom()">
+Create Room
+</button>
 
 <div id="roomCode"></div>
 
 </div>
 
-<div class="card">
+<div class="panel">
 
-<h2>Voice Chat</h2>
+<h2>Join Meeting</h2>
+
+<input
+id="joinCode"
+placeholder="Meeting Code"
+/>
+
+<button
+class="join"
+onclick="joinRoom()">
+Join Room
+</button>
+
+</div>
+
+<div class="panel">
+
+<h2>Audio Controls</h2>
 
 <button onclick="enableMic()">
 Enable Microphone
 </button>
 
+<br>
+
+<button
+class="mute"
+onclick="toggleMute()">
+Mute / Unmute
+</button>
+
 </div>
 
-<div class="card">
+<div class="panel">
 
-<h2>Participants Audio</h2>
+<h2>Participants</h2>
+
+<div id="participants"></div>
+
+</div>
+
+<div class="panel">
+
+<h2>Remote Audio</h2>
 
 <div id="audios"></div>
 
@@ -186,27 +247,91 @@ Enable Microphone
 
 <script>
 
-const SERVER_URL="https://zipmeet.onrender.com";
+const socket = io();
 
-const socket=io(SERVER_URL);
+let roomCode = "";
+let username = "";
+let localStream = null;
+let peers = {};
+let micMuted = false;
 
-let localStream;
-let roomCode="";
-let peers={};
-
-function generateCode(){
+function randomCode(){
 return Math.random()
 .toString(36)
 .substring(2,8)
 .toUpperCase();
 }
 
+function createRoom(){
+
+username =
+document.getElementById("username")
+.value.trim();
+
+if(!username){
+alert("Enter a username");
+return;
+}
+
+roomCode = randomCode();
+
+document.getElementById(
+"roomCode"
+).innerText = roomCode;
+
+socket.emit(
+"create-room",
+{
+roomCode,
+username
+}
+);
+
+}
+
+function joinRoom(){
+
+username =
+document.getElementById("username")
+.value.trim();
+
+if(!username){
+
+alert("Enter a username");
+return;
+}
+
+roomCode =
+document.getElementById("joinCode")
+.value.trim()
+.toUpperCase();
+
+if(!roomCode){
+alert("Enter room code");
+return;
+}
+
+document.getElementById(
+"roomCode"
+).innerText = roomCode;
+
+socket.emit(
+"join-room",
+{
+roomCode,
+username
+}
+);
+
+}
+
 async function enableMic(){
 
 try{
 
-localStream=
-await navigator.mediaDevices.getUserMedia({
+localStream =
+await navigator.mediaDevices
+.getUserMedia({
 audio:true
 });
 
@@ -214,72 +339,83 @@ startSpeechRecognition();
 
 alert("Microphone Enabled");
 
-}
-catch(err){
-alert("Microphone Permission Denied");
-}
+}catch(err){
+
+alert("Microphone permission denied");
 
 }
 
-function createMeeting(){
+}
 
-roomCode=generateCode();
+function toggleMute(){
+
+if(!localStream)
+return;
+
+micMuted = !micMuted;
+
+localStream
+.getAudioTracks()
+.forEach(track=>{
+track.enabled = !micMuted;
+});
 
 socket.emit(
-"create-room",
-roomCode
+"mute-state",
+{
+muted:micMuted
+}
 );
-
-document.getElementById(
-"roomCode"
-).textContent=roomCode;
-
-document.getElementById(
-"status"
-).textContent=
-"Room Created";
 
 }
 
-function joinMeeting(){
+function updateParticipants(users){
 
-roomCode=
+const container =
 document.getElementById(
-"joinInput"
-).value
-.trim()
-.toUpperCase();
-
-if(!roomCode)return;
-
-socket.emit(
-"join-room",
-roomCode
+"participants"
 );
 
-document.getElementById(
-"roomCode"
-).textContent=
-roomCode;
+container.innerHTML = "";
 
-document.getElementById(
-"status"
-).textContent=
-"Joined Room";
+users.forEach(user=>{
+
+const div =
+document.createElement("div");
+
+div.className =
+"participant";
+
+div.innerText =
+user.username +
+(user.muted ? " 🔇" : " 🎤");
+
+container.appendChild(div);
+
+});
 
 }
+
+socket.on(
+"participant-list",
+users=>{
+updateParticipants(users);
+}
+);
 
 socket.on(
 "user-joined",
 async data=>{
 
-const peer=
-createPeer(data.userId);
+if(!localStream)
+return;
 
-peers[data.userId]=peer;
+const peer =
+createPeer(data.socketId);
 
-localStream
-.getTracks()
+peers[data.socketId] = peer;
+
+localStream.getTracks()
 .forEach(track=>{
 peer.addTrack(
 track,
@@ -287,7 +423,7 @@ localStream
 );
 });
 
-const offer=
+const offer =
 await peer.createOffer();
 
 await peer.setLocalDescription(
@@ -297,7 +433,7 @@ offer
 socket.emit(
 "offer",
 {
-target:data.userId,
+target:data.socketId,
 offer
 }
 );
@@ -308,13 +444,15 @@ socket.on(
 "offer",
 async data=>{
 
-const peer=
+if(!localStream)
+return;
+
+const peer =
 createPeer(data.sender);
 
-peers[data.sender]=peer;
+peers[data.sender] = peer;
 
-localStream
-.getTracks()
+localStream.getTracks()
 .forEach(track=>{
 peer.addTrack(
 track,
@@ -328,7 +466,7 @@ data.offer
 )
 );
 
-const answer=
+const answer =
 await peer.createAnswer();
 
 await peer.setLocalDescription(
@@ -349,12 +487,16 @@ socket.on(
 "answer",
 async data=>{
 
+if(peers[data.sender]){
+
 await peers[data.sender]
 .setRemoteDescription(
 new RTCSessionDescription(
 data.answer
 )
 );
+
+}
 
 });
 
@@ -375,27 +517,30 @@ data.candidate
 
 });
 
-function createPeer(userId){
+function createPeer(targetId){
 
-const peer=
+const peer =
 new RTCPeerConnection({
+
 iceServers:[
 {
 urls:
 "stun:stun.l.google.com:19302"
 }
 ]
+
 });
 
-peer.onicecandidate=e=>{
+peer.onicecandidate =
+event=>{
 
-if(e.candidate){
+if(event.candidate){
 
 socket.emit(
 "ice-candidate",
 {
-target:userId,
-candidate:e.candidate
+target:targetId,
+candidate:event.candidate
 }
 );
 
@@ -403,32 +548,34 @@ candidate:e.candidate
 
 };
 
-peer.ontrack=e=>{
+peer.ontrack = e=>{
 
-let audio=
+let audio =
 document.getElementById(
-"audio-"+userId
+"audio-"+targetId
 );
 
 if(!audio){
 
-audio=
+audio =
 document.createElement(
 "audio"
 );
 
-audio.id=
-"audio-"+userId;
+audio.id =
+"audio-"+targetId;
 
-audio.autoplay=true;
+audio.autoplay = true;
 
 document
-.getElementById("audios")
+.getElementById(
+"audios"
+)
 .appendChild(audio);
 
 }
 
-audio.srcObject=
+audio.srcObject =
 e.streams[0];
 
 };
@@ -439,23 +586,25 @@ return peer;
 
 function addTranscript(text){
 
-const box=
+const box =
 document.getElementById(
 "transcripts"
 );
 
-const div=
+const div =
 document.createElement(
 "div"
 );
 
-div.className="msg";
+div.className =
+"transcript";
 
-div.textContent=text;
+div.innerText =
+text;
 
 box.appendChild(div);
 
-box.scrollTop=
+box.scrollTop =
 box.scrollHeight;
 
 }
@@ -463,44 +612,48 @@ box.scrollHeight;
 socket.on(
 "transcript",
 data=>{
-addTranscript(data.text);
-}
+
+addTranscript(
+data.username +
+": " +
+data.text
 );
+
+});
 
 function startSpeechRecognition(){
 
-const SpeechRecognition=
+const SpeechRecognition =
 window.SpeechRecognition ||
 window.webkitSpeechRecognition;
 
 if(!SpeechRecognition){
+
+console.log(
+"Speech recognition unavailable"
+);
+
 return;
 }
 
-const recognition=
+const recognition =
 new SpeechRecognition();
 
-recognition.continuous=true;
+recognition.continuous = true;
+recognition.interimResults = false;
 
-recognition.interimResults=false;
+recognition.onresult = event=>{
 
-recognition.onresult=e=>{
-
-const text=
-e.results[
-e.results.length-1
+const text =
+event.results[
+event.results.length - 1
 ][0].transcript;
 
 socket.emit(
 "transcript",
 {
-room:roomCode,
-text:text
+text
 }
-);
-
-addTranscript(
-"You: "+text
 );
 
 };
