@@ -1,1 +1,515 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZIPMEET</title>
 
+<style>
+
+body{
+margin:0;
+font-family:Arial,sans-serif;
+background:#111;
+color:white;
+height:100vh;
+overflow:hidden;
+}
+
+.header{
+height:70px;
+background:#1b1b1b;
+display:flex;
+align-items:center;
+padding:0 20px;
+gap:10px;
+}
+
+.logo{
+font-size:28px;
+font-weight:bold;
+color:#3399ff;
+}
+
+button{
+padding:10px 15px;
+border:none;
+border-radius:8px;
+cursor:pointer;
+font-weight:bold;
+}
+
+.create{
+background:#0084ff;
+color:white;
+}
+
+.join{
+background:#00a651;
+color:white;
+}
+
+input{
+padding:10px;
+border:none;
+border-radius:8px;
+background:#222;
+color:white;
+}
+
+.main{
+display:flex;
+height:calc(100vh - 70px);
+}
+
+.left{
+flex:1;
+padding:20px;
+overflow:auto;
+}
+
+.right{
+width:350px;
+background:black;
+display:flex;
+flex-direction:column;
+}
+
+.right h2{
+margin:0;
+padding:15px;
+background:#000;
+text-align:center;
+border-bottom:1px solid #333;
+}
+
+#transcripts{
+flex:1;
+overflow:auto;
+padding:10px;
+}
+
+.msg{
+padding:10px;
+margin-bottom:10px;
+background:#151515;
+border-radius:6px;
+}
+
+.card{
+background:#1e1e1e;
+padding:20px;
+border-radius:12px;
+margin-bottom:15px;
+}
+
+#roomCode{
+font-size:28px;
+color:#48a7ff;
+margin-top:10px;
+font-weight:bold;
+}
+
+#audios audio{
+display:block;
+margin-top:10px;
+}
+
+</style>
+</head>
+<body>
+
+<div class="header">
+
+<div class="logo">
+ZIPMEET
+</div>
+
+<button class="create" onclick="createMeeting()">
+Create Meeting
+</button>
+
+<input id="joinInput" placeholder="Meeting Code">
+
+<button class="join" onclick="joinMeeting()">
+Join
+</button>
+
+</div>
+
+<div class="main">
+
+<div class="left">
+
+<div class="card">
+<h2>Meeting</h2>
+
+<div id="status">
+Not connected
+</div>
+
+<div id="roomCode"></div>
+
+</div>
+
+<div class="card">
+
+<h2>Voice Chat</h2>
+
+<button onclick="enableMic()">
+Enable Microphone
+</button>
+
+</div>
+
+<div class="card">
+
+<h2>Participants Audio</h2>
+
+<div id="audios"></div>
+
+</div>
+
+</div>
+
+<div class="right">
+
+<h2>Live Transcript</h2>
+
+<div id="transcripts"></div>
+
+</div>
+
+</div>
+
+/socket.io/socket.io.jsscript>
+
+<script>
+
+const SERVER_URL="https://zipmeet.onrender.com";
+
+const socket=io(SERVER_URL);
+
+let localStream;
+let roomCode="";
+let peers={};
+
+function generateCode(){
+return Math.random()
+.toString(36)
+.substring(2,8)
+.toUpperCase();
+}
+
+async function enableMic(){
+
+try{
+
+localStream=
+await navigator.mediaDevices.getUserMedia({
+audio:true
+});
+
+startSpeechRecognition();
+
+alert("Microphone Enabled");
+
+}
+catch(err){
+alert("Microphone Permission Denied");
+}
+
+}
+
+function createMeeting(){
+
+roomCode=generateCode();
+
+socket.emit(
+"create-room",
+roomCode
+);
+
+document.getElementById(
+"roomCode"
+).textContent=roomCode;
+
+document.getElementById(
+"status"
+).textContent=
+"Room Created";
+
+}
+
+function joinMeeting(){
+
+roomCode=
+document.getElementById(
+"joinInput"
+).value
+.trim()
+.toUpperCase();
+
+if(!roomCode)return;
+
+socket.emit(
+"join-room",
+roomCode
+);
+
+document.getElementById(
+"roomCode"
+).textContent=
+roomCode;
+
+document.getElementById(
+"status"
+).textContent=
+"Joined Room";
+
+}
+
+socket.on(
+"user-joined",
+async data=>{
+
+const peer=
+createPeer(data.userId);
+
+peers[data.userId]=peer;
+
+localStream
+.getTracks()
+.forEach(track=>{
+peer.addTrack(
+track,
+localStream
+);
+});
+
+const offer=
+await peer.createOffer();
+
+await peer.setLocalDescription(
+offer
+);
+
+socket.emit(
+"offer",
+{
+target:data.userId,
+offer
+}
+);
+
+});
+
+socket.on(
+"offer",
+async data=>{
+
+const peer=
+createPeer(data.sender);
+
+peers[data.sender]=peer;
+
+localStream
+.getTracks()
+.forEach(track=>{
+peer.addTrack(
+track,
+localStream
+);
+});
+
+await peer.setRemoteDescription(
+new RTCSessionDescription(
+data.offer
+)
+);
+
+const answer=
+await peer.createAnswer();
+
+await peer.setLocalDescription(
+answer
+);
+
+socket.emit(
+"answer",
+{
+target:data.sender,
+answer
+}
+);
+
+});
+
+socket.on(
+"answer",
+async data=>{
+
+await peers[data.sender]
+.setRemoteDescription(
+new RTCSessionDescription(
+data.answer
+)
+);
+
+});
+
+socket.on(
+"ice-candidate",
+async data=>{
+
+if(peers[data.sender]){
+
+await peers[data.sender]
+.addIceCandidate(
+new RTCIceCandidate(
+data.candidate
+)
+);
+
+}
+
+});
+
+function createPeer(userId){
+
+const peer=
+new RTCPeerConnection({
+iceServers:[
+{
+urls:
+"stun:stun.l.google.com:19302"
+}
+]
+});
+
+peer.onicecandidate=e=>{
+
+if(e.candidate){
+
+socket.emit(
+"ice-candidate",
+{
+target:userId,
+candidate:e.candidate
+}
+);
+
+}
+
+};
+
+peer.ontrack=e=>{
+
+let audio=
+document.getElementById(
+"audio-"+userId
+);
+
+if(!audio){
+
+audio=
+document.createElement(
+"audio"
+);
+
+audio.id=
+"audio-"+userId;
+
+audio.autoplay=true;
+
+document
+.getElementById("audios")
+.appendChild(audio);
+
+}
+
+audio.srcObject=
+e.streams[0];
+
+};
+
+return peer;
+
+}
+
+function addTranscript(text){
+
+const box=
+document.getElementById(
+"transcripts"
+);
+
+const div=
+document.createElement(
+"div"
+);
+
+div.className="msg";
+
+div.textContent=text;
+
+box.appendChild(div);
+
+box.scrollTop=
+box.scrollHeight;
+
+}
+
+socket.on(
+"transcript",
+data=>{
+addTranscript(data.text);
+}
+);
+
+function startSpeechRecognition(){
+
+const SpeechRecognition=
+window.SpeechRecognition ||
+window.webkitSpeechRecognition;
+
+if(!SpeechRecognition){
+return;
+}
+
+const recognition=
+new SpeechRecognition();
+
+recognition.continuous=true;
+
+recognition.interimResults=false;
+
+recognition.onresult=e=>{
+
+const text=
+e.results[
+e.results.length-1
+][0].transcript;
+
+socket.emit(
+"transcript",
+{
+room:roomCode,
+text:text
+}
+);
+
+addTranscript(
+"You: "+text
+);
+
+};
+
+recognition.start();
+
+}
+
+</script>
+
+</body>
+</html>
