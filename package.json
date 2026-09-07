@@ -1,0 +1,21 @@
+{
+  "name": "zipmeet",
+  "version": "1.0.0",
+  "description": "ZIPMEET Signaling Server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "zipmeet",
+    "webrtc",
+    "socketio",
+    "render"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}
